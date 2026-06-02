@@ -1,0 +1,350 @@
+import java.util.ArrayList;
+
+PVector playerPos; // Renamed for clarity (formerly stickManPos)
+ArrayList<CannonBall> cannonBalls = new ArrayList<CannonBall>();
+PVector gravity;
+int lastCannonSpawn = 0;
+int spawnInterval = 2000; // initial spawn interval in ms
+
+// --- Camera Interaction Variables ---
+float camRotX = -0.3; // Initial tilt down
+float camRotY = 0.5;  // Initial angle view
+float camZoom = 1200;
+PVector camPan = new PVector(0, 0, 0);
+
+// --- Slider variables (Touch-based UI for Android) ---
+float runnerSpeed = 10;
+float minSpeed = 1, maxSpeed = 20;
+float slider1X = 40, slider1Y = 40, sliderWidth = 250, sliderHeight = 25;
+
+float minInterval = 200, maxInterval = 5000;
+float slider2X = 40, slider2Y = 100;
+
+// Variables to track multi-touch zoom logic securely
+float lastTouchDist = 0;
+boolean multiTouchActive = false;
+
+void settings() {
+  fullScreen(P3D);
+}
+
+void setup() {
+  orientation(LANDSCAPE);
+  
+  // Horse starts far away (z = 800) and runs forward (negative z)
+  playerPos = new PVector(0, 0, 800);
+  
+  // Gravity for parabolic motion (y positive is downward)
+  gravity = new PVector(0, 0.3f, 0);
+  
+  lastCannonSpawn = millis();
+}
+
+void draw() {
+  background(15, 15, 25); // Dark cosmic blue background
+  
+  // --- 1. Apply 3D Interactive Camera ---
+  pushMatrix();
+    // Move origin to center of viewport
+    translate(width/2 + camPan.x, height/2 + camPan.y, camPan.z); 
+    
+    // Apply Zoom
+    translate(0, 0, -camZoom + 1200); 
+    
+    // Apply Rotations
+    rotateX(camRotX);
+    rotateY(camRotY);
+    
+    // Draw a large ground plane
+    pushMatrix();
+      rotateX(PI / 2);
+      noStroke();
+      fill(40, 120, 60); // Darker green for a nicer 3D grid reference
+      rectMode(CENTER);
+      rect(0, 0, 2000, 2000);
+      
+      // Draw grid lines on the floor to make panning obvious
+      stroke(50, 160, 80);
+      strokeWeight(2);
+      for(int i = -1000; i <= 1000; i += 100) {
+        line(i, -1000, i, 1000);
+        line(-1000, i, 1000, i);
+      }
+    popMatrix();
+    
+    // Update player position (simulate running forward)
+    playerPos.z -= runnerSpeed;
+    
+    // Reset the player and clear cannon balls if he reaches the end of the plane
+    if (playerPos.z < -200) {
+      playerPos.z = 800;
+      cannonBalls.clear();
+    }
+    
+    // Draw the horse and rider
+    pushMatrix();
+      translate(playerPos.x, playerPos.y, playerPos.z);
+      drawHorseAndRider();
+    popMatrix();
+    
+    // Periodically spawn cannon balls from left and right sides aimed at the horse
+    if (millis() - lastCannonSpawn > spawnInterval) {
+      spawnCannonBalls();
+      lastCannonSpawn = millis();
+    }
+    
+    // Update and display each cannon ball
+    for (int i = cannonBalls.size() - 1; i >= 0; i--) {
+      CannonBall cb = cannonBalls.get(i);
+      cb.update();
+      cb.display();
+      // Remove a cannon ball if it goes too far or off-screen
+      if (cb.pos.y > height || abs(cb.pos.x) > width * 2 || abs(cb.pos.z) > 2000) {
+        cannonBalls.remove(i);
+      }
+    }
+    
+    // Draw simple cannons on the left and right sides relative to the player
+    drawCannons();
+  popMatrix();
+  
+  // --- 2. Draw Android UI Overlays (Un-affected by 3D movements) ---
+  drawUI();
+}
+
+void drawHorseAndRider() {
+  // Galloping animation variables tied to runner speed
+  float runCycle = frameCount * runnerSpeed * 0.03f;
+  float frontLegSwing = sin(runCycle) * 20;
+  float backLegSwing = sin(runCycle + PI) * 20; // Opposite phase for galloping
+  float bodyBounce = abs(sin(runCycle)) * 8;   // Adds vertical bounce
+
+  pushMatrix();
+    translate(0, -bodyBounce, 0); // Apply bounce to the whole unit
+    
+    // --- Draw Horse ---
+    fill(139, 69, 19); // Saddle brown color
+    noStroke();
+    
+    // Horse Body
+    pushMatrix();
+      translate(0, -20, 0);
+      box(25, 20, 60); // w, h, d (z is forward/backward)
+    popMatrix();
+    
+    // Horse Head & Neck
+    pushMatrix();
+      translate(0, -35, -35); // Front of the body
+      rotateX(PI/5);
+      box(12, 25, 15);
+    popMatrix();
+    
+    // Horse Legs
+    stroke(139, 69, 19);
+    strokeWeight(6);
+    
+    // Front Left (z is negative direction)
+    line(-10, -10, -20, -10, 15, -20 + frontLegSwing);
+    // Front Right
+    line(10, -10, -20, 10, 15, -20 + frontLegSwing);
+    // Back Left
+    line(-10, -10, 20, -10, 15, 20 + backLegSwing);
+    // Back Right
+    line(10, -10, 20, 10, 15, 20 + backLegSwing);
+    
+    // --- Draw Rider (Stickman) ---
+    stroke(255);
+    strokeWeight(3);
+    
+    pushMatrix();
+      translate(0, -30, 5); // Positioned comfortably on the horse's back
+      
+      // Head
+      pushMatrix();
+        fill(255);
+        noStroke();
+        translate(0, -22, 0);
+        sphere(8);
+      popMatrix();
+      
+      // Body
+      stroke(255);
+      line(0, -15, 0, 0, 0, 0);
+      
+      // Arms (reaching forward to hold reins)
+      line(0, -10, 0, -12, -5, -15); // Left arm
+      line(0, -10, 0, 12, -5, -15);  // Right arm
+      
+      // Legs (straddling the horse body)
+      line(0, 0, 0, -16, 15, 0); // Left leg
+      line(0, 0, 0, 16, 15, 0);  // Right leg
+    popMatrix();
+
+  popMatrix();
+}
+
+void spawnCannonBalls() {
+  // Target the horse (slightly elevated on the Y axis to hit the body, not the feet)
+  PVector target = PVector.add(playerPos, new PVector(random(-20, 20), random(-30, -10), 0));
+  
+  float t = random(30, 60);
+  PVector gTerm = PVector.mult(gravity, 0.5f * t * t);
+  
+  // Left cannon position
+  PVector leftCannonPos = new PVector(-400, 0, playerPos.z + 200);
+  PVector diffLeft = PVector.sub(target, leftCannonPos);
+  diffLeft.sub(gTerm);
+  PVector leftVel = diffLeft.div(t);
+  cannonBalls.add(new CannonBall(leftCannonPos, leftVel));
+  
+  // Right cannon position
+  PVector rightCannonPos = new PVector(400, 0, playerPos.z + 200);
+  PVector diffRight = PVector.sub(target, rightCannonPos);
+  diffRight.sub(gTerm);
+  PVector rightVel = diffRight.div(t);
+  cannonBalls.add(new CannonBall(rightCannonPos, rightVel));
+}
+
+void drawCannons() {
+  // Draw left cannon
+  pushMatrix();
+    translate(-400, 0, playerPos.z + 200);
+    fill(180, 50, 50);
+    noStroke();
+    box(30, 30, 60);
+  popMatrix();
+  
+  // Draw right cannon
+  pushMatrix();
+    translate(400, 0, playerPos.z + 200);
+    fill(180, 50, 50);
+    noStroke();
+    box(30, 30, 60);
+  popMatrix();
+}
+
+// --- Multi-touch Gestures & Controls for Android ---
+void mouseDragged() {
+  // If the user interacts with Slider 1 (Runner Speed)
+  if (mouseX >= slider1X && mouseX <= slider1X + sliderWidth && mouseY >= slider1Y - 15 && mouseY <= slider1Y + sliderHeight + 15) {
+    float pct = (mouseX - slider1X) / sliderWidth;
+    runnerSpeed = lerp(minSpeed, maxSpeed, constrain(pct, 0, 1));
+    return;
+  }
+  // If the user interacts with Slider 2 (Spawn Interval)
+  if (mouseX >= slider2X && mouseX <= slider2X + sliderWidth && mouseY >= slider2Y - 15 && mouseY <= slider2Y + sliderHeight + 15) {
+    float pct = (mouseX - slider2X) / sliderWidth;
+    spawnInterval = (int)lerp(minInterval, maxInterval, constrain(pct, 0, 1));
+    return;
+  }
+  
+  // Custom Orbit & Pan implementation:
+  // If touch input is a single finger and missed the sliders, rotate camera scene.
+  if (touches.length <= 1) {
+    multiTouchActive = false;
+    camRotY += (mouseX - pmouseX) * 0.01f;
+    camRotX -= (mouseY - pmouseY) * 0.01f;
+    camRotX = constrain(camRotX, -PI/2, 0.05f); // Lock camera inversion
+  } 
+  // If multi-touch (2 fingers) is registered on Android, perform Panning & Zooming
+  else if (touches.length == 2) {
+    float dx = touches[0].x - touches[1].x;
+    float dy = touches[0].y - touches[1].y;
+    float currentDist = sqrt(dx*dx + dy*dy);
+    
+    if (!multiTouchActive) {
+      lastTouchDist = currentDist;
+      multiTouchActive = true;
+    } else {
+      // Direct adjustment of zoom parameters using distance change thresholds
+      camZoom -= (currentDist - lastTouchDist) * 1.5f;
+      camZoom = constrain(camZoom, 200, 3000);
+      lastTouchDist = currentDist;
+    }
+    
+    // Pan scene smoothly with two fingers
+    camPan.x += (mouseX - pmouseX) * 0.8f;
+    camPan.y += (mouseY - pmouseY) * 0.8f;
+  }
+}
+
+void mouseReleased() {
+  multiTouchActive = false;
+}
+
+void drawUI() {
+  hint(DISABLE_DEPTH_TEST); 
+  camera(); 
+  noStroke();
+  
+  // Background Panel for Sliders readability
+  fill(0, 0, 0, 150);
+  rect(20, 20, sliderWidth + 300, 130, 10);
+  
+  // Slider 1 Background and Handle (Runner Speed)
+  fill(60);
+  rectMode(CORNER);
+  rect(slider1X, slider1Y, sliderWidth, sliderHeight, 5);
+  fill(0, 150, 255);
+  float slider1Pos = map(runnerSpeed, minSpeed, maxSpeed, 0, sliderWidth);
+  rect(slider1X + slider1Pos - 8, slider1Y - 4, 16, sliderHeight + 8, 4);
+  
+  // Slider 2 Background and Handle (Spawn Interval)
+  fill(60);
+  rect(slider2X, slider2Y, sliderWidth, sliderHeight, 5);
+  fill(0, 150, 255);
+  float slider2Pos = map(spawnInterval, minInterval, maxInterval, 0, sliderWidth);
+  rect(slider2X + slider2Pos - 8, slider2Y - 4, 16, sliderHeight + 8, 4);
+  
+  // On-screen UI texts
+  fill(255);
+  textSize(20);
+  textAlign(LEFT, CENTER);
+  text("Horse Speed: " + nf(runnerSpeed, 1, 1), slider1X + sliderWidth + 20, slider1Y + sliderHeight/2f);
+  text("Fire Interval: " + spawnInterval + " ms", slider2X + sliderWidth + 20, slider2Y + sliderHeight/2f);
+  
+  hint(ENABLE_DEPTH_TEST); 
+}
+
+class CannonBall {
+  PVector pos;
+  PVector vel;
+  float r = 12;
+  ArrayList<PVector> trajectory = new ArrayList<PVector>();
+  
+  CannonBall(PVector pos, PVector velocity) {
+    this.pos = pos.copy();
+    this.vel = velocity.copy();
+  }
+  
+  void update() {
+    trajectory.add(pos.copy());
+    if (trajectory.size() > 35) {
+      trajectory.remove(0);
+    }
+    vel.add(gravity);
+    pos.add(vel);
+  }
+  
+  void display() {
+    // Shining laser red line
+    pushMatrix();
+      noFill();
+      stroke(255, 30, 30);
+      strokeWeight(5);
+      beginShape();
+      for (PVector p : trajectory) {
+        vertex(p.x, p.y, p.z);
+      }
+      endShape();
+    popMatrix();
+    
+    // Cannonball element
+    pushMatrix();
+      translate(pos.x, pos.y, pos.z);
+      fill(220, 220, 100);
+      noStroke();
+      sphere(r);
+    popMatrix();
+  }
+}
