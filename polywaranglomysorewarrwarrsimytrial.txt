@@ -1,0 +1,1230 @@
+import java.util.ArrayList;
+
+// ============================================================
+// ANGLO-MYSORE & POLYGAR WAR SIMULATION
+// Processing / APDE / Android / P3D
+//
+// Phone-friendly rebuild:
+// - British / Indian battle lines
+// - Infantry, cavalry, elephants, cannons
+// - Formation buttons: section / company / battalion / brigade / corps / army
+// - Advance / hold controls
+// - Cannonballs with arc trajectory
+// - HUD included and compile-consistent
+// ============================================================
+
+final int SIDE_BRITISH = 0;
+final int SIDE_INDIAN  = 1;
+
+ArrayList<Unit> units = new ArrayList<Unit>();
+ArrayList<CannonBall> cannonBalls = new ArrayList<CannonBall>();
+ArrayList<Button> buttons = new ArrayList<Button>();
+
+Slider britishSlider;
+Slider indianSlider;
+
+int britishCasualties = 0;
+int indianCasualties  = 0;
+
+Unit selectedUnit = null;
+
+PVector gravity = new PVector(0, 0.24f, 0);
+
+// Camera
+float camRotX = -0.44f;
+float camRotY = 0.60f;
+float camZoom = 1500;
+PVector camPan = new PVector(0, 90, 0);
+
+boolean battlePaused = false;
+
+void settings() {
+  fullScreen(P3D);
+}
+
+void setup() {
+  orientation(LANDSCAPE);
+  smooth(4);
+  sphereDetail(8);
+  textFont(createFont("SansSerif", 16));
+
+  // British controls
+  buttons.add(new Button(24, 138, 190, 30, "British Battalion", 1));
+  buttons.add(new Button(24, 174, 190, 30, "British Brigade", 2));
+  buttons.add(new Button(24, 210, 190, 30, "British Corps", 3));
+  buttons.add(new Button(24, 246, 190, 30, "British Army", 4));
+  buttons.add(new Button(24, 282, 190, 30, "British Advance", 11));
+
+  // Indian controls
+  buttons.add(new Button(226, 138, 190, 30, "Indian Section", 5));
+  buttons.add(new Button(226, 174, 190, 30, "Indian Company", 6));
+  buttons.add(new Button(226, 210, 190, 30, "Indian Battalion", 7));
+  buttons.add(new Button(226, 246, 190, 30, "Indian Brigade", 8));
+  buttons.add(new Button(226, 282, 190, 30, "Indian Corps", 9));
+  buttons.add(new Button(226, 318, 190, 30, "Indian Army", 10));
+  buttons.add(new Button(428, 138, 190, 30, "Indian Advance", 12));
+
+  // Other commands
+  buttons.add(new Button(428, 174, 190, 30, "Reset Battle", 13));
+  buttons.add(new Button(428, 210, 190, 30, "Pause / Resume", 14));
+
+  britishSlider = new Slider(24, 380, 280, "British Density", 18, 80, 34);
+  indianSlider  = new Slider(24, 440, 280, "Indian Density", 18, 80, 40);
+
+  setupBattlefield();
+}
+
+void draw() {
+  background(18, 23, 32);
+
+  // WORLD
+  pushMatrix();
+  translate(width/2 + camPan.x, height/2 + camPan.y, camPan.z);
+  translate(0, 0, -camZoom + 1200);
+  rotateX(camRotX);
+  rotateY(camRotY);
+
+  lights();
+  ambientLight(80, 80, 80);
+  directionalLight(180, 170, 150, -0.4f, -1, -0.2f);
+
+  drawGround();
+
+  if (!battlePaused) {
+    for (int i = units.size() - 1; i >= 0; i--) {
+      Unit u = units.get(i);
+      u.update();
+      u.display();
+
+      if (u.hp <= 0) {
+        if (u.side == SIDE_BRITISH) britishCasualties++;
+        else indianCasualties++;
+        units.remove(i);
+      }
+    }
+
+    for (int i = cannonBalls.size() - 1; i >= 0; i--) {
+      CannonBall c = cannonBalls.get(i);
+      c.update();
+      c.display();
+
+      if (c.checkCollision(units) || c.outOfBounds()) {
+        cannonBalls.remove(i);
+      }
+    }
+  } else {
+    for (Unit u : units) u.display();
+    for (CannonBall c : cannonBalls) c.display();
+  }
+
+  popMatrix();
+
+  // HUD
+  hint(DISABLE_DEPTH_TEST);
+  camera();
+  drawHUD();
+
+  for (Button b : buttons) b.display();
+  britishSlider.display();
+  indianSlider.display();
+  hint(ENABLE_DEPTH_TEST);
+}
+
+// ============================================================
+// GROUND
+// ============================================================
+void drawGround() {
+  pushMatrix();
+  rotateX(HALF_PI);
+  noStroke();
+  fill(110, 95, 70);
+  rectMode(CENTER);
+  rect(0, 0, 3600, 2600);
+
+  stroke(92, 82, 62);
+  strokeWeight(1.2f);
+  for (int i = -1800; i <= 1800; i += 150) {
+    line(i, -1300, i, 1300);
+    line(-1800, i, 1800, i);
+  }
+  popMatrix();
+}
+
+// ============================================================
+// HUD
+// ============================================================
+void drawHUD() {
+  noStroke();
+
+  // Top banner
+  fill(10, 15, 20, 230);
+  rect(0, 0, width, 120);
+  stroke(212, 175, 55);
+  strokeWeight(2);
+  line(0, 120, width, 120);
+
+  textAlign(CENTER, CENTER);
+  fill(245);
+  textSize(22);
+  text("ANGLO-MYSORE & POLYGAR WAR SIMULATION", width/2, 32);
+
+  fill(180);
+  textSize(13);
+  text("Drag left side to rotate | Drag far right edge to zoom | Use formation buttons to add troops", width/2, 72);
+
+  rectMode(CORNER);
+
+  // British panel
+  fill(180, 40, 40, 55);
+  rect(width - 470, 16, 220, 72, 6);
+  fill(255, 160, 160);
+  textAlign(LEFT, CENTER);
+  textSize(15);
+  text("BRITISH", width - 454, 38);
+  fill(255);
+  textSize(17);
+  text("Casualties: " + britishCasualties, width - 454, 64);
+
+  // Indian panel
+  fill(230, 120, 20, 55);
+  rect(width - 240, 16, 220, 72, 6);
+  fill(255, 210, 130);
+  textSize(15);
+  text("INDIAN / MYSORE", width - 224, 38);
+  fill(255);
+  textSize(17);
+  text("Casualties: " + indianCasualties, width - 224, 64);
+
+  // Center status panel
+  fill(15, 18, 24, 215);
+  rect(width/2 - 230, 16, 460, 72, 8);
+  fill(245);
+  textAlign(CENTER, CENTER);
+  textSize(14);
+
+  if (selectedUnit != null) {
+    text(selectedUnit.sideName() + " " + selectedUnit.type + " | HP " + nf(selectedUnit.hp, 0, 0) + " / " + nf(selectedUnit.maxHp, 0, 0), width/2, 39);
+    text("Morale " + nf(selectedUnit.morale, 0, 0) + " | Facing " + nf(degrees(selectedUnit.heading), 0, 1) + "°", width/2, 63);
+  } else {
+    text("Phone-friendly scaling: each visible unit represents a small battlefield cluster.", width/2, 39);
+    text("Indian formations now include cavalry and elephants facing the British line.", width/2, 63);
+  }
+
+  // Legend box
+  fill(18, 22, 30, 220);
+  rect(24, 520, 660, 108, 8);
+  fill(255);
+  textAlign(LEFT, TOP);
+  textSize(13);
+  text(
+    "Reference labels used in the buttons:\n" +
+    "Section: 6–12  |  Company: about 100  |  Battalion: 400–1,200\n" +
+    "Brigade: 2,000–8,000  |  Division: 8,000–12,000  |  Corps: 20,000–40,000  |  Army: 50,000+",
+    40, 536
+  );
+
+  fill(220);
+  textSize(12);
+  text("Current units: " + units.size() + "   Cannons: " + cannonBalls.size() + "   Pause: " + battlePaused, 24, height - 22);
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+void mousePressed() {
+  for (Button b : buttons) {
+    if (b.isClicked()) {
+      execute(b.id);
+      return;
+    }
+  }
+
+  if (britishSlider.mousePressed()) return;
+  if (indianSlider.mousePressed()) return;
+
+  // Simple unit pick: nearest unit to the tap, only if not on HUD
+  if (mouseY > 120) {
+    selectedUnit = pickNearestUnit(mouseX, mouseY);
+  }
+}
+
+void mouseReleased() {
+  britishSlider.mouseReleased();
+  indianSlider.mouseReleased();
+}
+
+void mouseDragged() {
+  boolean sliderMoved = false;
+  sliderMoved |= britishSlider.mouseDragged();
+  sliderMoved |= indianSlider.mouseDragged();
+  if (sliderMoved) return;
+
+  // Avoid camera drag over UI region
+  if (mouseX < 700 && mouseY < 650) return;
+
+  if (mouseX > width * 0.80f) {
+    camZoom += (mouseY - pmouseY) * 6f;
+    camZoom = constrain(camZoom, 350, 2800);
+  } else {
+    camRotY += (mouseX - pmouseX) * 0.006f;
+    camRotX += (mouseY - pmouseY) * 0.006f;
+    camRotX = constrain(camRotX, -PI/2 + 0.05f, -0.05f);
+  }
+}
+
+// ============================================================
+// COMMANDS
+// ============================================================
+void execute(int id) {
+  if (id == 1) spawnBritishPreset("Battalion");
+  else if (id == 2) spawnBritishPreset("Brigade");
+  else if (id == 3) spawnBritishPreset("Corps");
+  else if (id == 4) spawnBritishPreset("Army");
+
+  else if (id == 5) spawnIndianPreset("Section");
+  else if (id == 6) spawnIndianPreset("Company");
+  else if (id == 7) spawnIndianPreset("Battalion");
+  else if (id == 8) spawnIndianPreset("Brigade");
+  else if (id == 9) spawnIndianPreset("Corps");
+  else if (id == 10) spawnIndianPreset("Army");
+
+  else if (id == 11) setSideAdvance(SIDE_BRITISH, true);
+  else if (id == 12) setSideAdvance(SIDE_INDIAN, true);
+  else if (id == 13) setupBattlefield();
+  else if (id == 14) battlePaused = !battlePaused;
+}
+
+// ============================================================
+// SETUP / SPAWNING
+// ============================================================
+void setupBattlefield() {
+  units.clear();
+  cannonBalls.clear();
+  britishCasualties = 0;
+  indianCasualties = 0;
+  selectedUnit = null;
+  battlePaused = false;
+
+  // Starter battle
+  spawnBritishPreset("Battalion");
+  spawnIndianPreset("Battalion");
+}
+
+int scaledCount(int baseCount, float scale) {
+  return max(1, min(60, round(baseCount * scale)));
+}
+
+float britishScale() {
+  return map(britishSlider.value, britishSlider.minV, britishSlider.maxV, 0.75f, 1.60f);
+}
+
+float indianScale() {
+  return map(indianSlider.value, indianSlider.minV, indianSlider.maxV, 0.75f, 1.60f);
+}
+
+void spawnBritishPreset(String preset) {
+  float s = britishScale();
+
+  if (preset.equals("Battalion")) {
+    spawnCluster(SIDE_BRITISH, "Infantry", scaledCount(12, s), -760, -150, 5, 54, 26);
+    spawnCluster(SIDE_BRITISH, "Cavalry",  scaledCount(2, s),  -870,  130, 2, 42, 36);
+    spawnCluster(SIDE_BRITISH, "Cannon",   scaledCount(1, s),  -990,  -40, 1, 0, 0);
+  } 
+  else if (preset.equals("Brigade")) {
+    spawnCluster(SIDE_BRITISH, "Infantry", scaledCount(20, s), -770, -180, 6, 56, 26);
+    spawnCluster(SIDE_BRITISH, "Cavalry",  scaledCount(4, s),  -880,  110, 4, 48, 36);
+    spawnCluster(SIDE_BRITISH, "Cannon",   scaledCount(2, s), -1000,  -20, 2, 0, 0);
+  } 
+  else if (preset.equals("Corps")) {
+    spawnCluster(SIDE_BRITISH, "Infantry", scaledCount(32, s), -780, -200, 7, 58, 26);
+    spawnCluster(SIDE_BRITISH, "Cavalry",  scaledCount(6, s),  -900,  100, 3, 48, 36);
+    spawnCluster(SIDE_BRITISH, "Cannon",   scaledCount(3, s), -1030,  -10, 3, 0, 0);
+  } 
+  else if (preset.equals("Army")) {
+    spawnCluster(SIDE_BRITISH, "Infantry", scaledCount(44, s), -790, -220, 8, 60, 26);
+    spawnCluster(SIDE_BRITISH, "Cavalry",  scaledCount(10, s), -910,  110, 5, 50, 36);
+    spawnCluster(SIDE_BRITISH, "Cannon",   scaledCount(4, s), -1050,  -20, 2, 0, 0);
+  }
+}
+
+void spawnIndianPreset(String preset) {
+  float s = indianScale();
+
+  if (preset.equals("Section")) {
+    spawnCluster(SIDE_INDIAN, "Infantry", scaledCount(6, s), 760, -120, 3, 54, 26);
+  } 
+  else if (preset.equals("Company")) {
+    spawnCluster(SIDE_INDIAN, "Infantry", scaledCount(10, s), 770, -150, 4, 54, 26);
+    spawnCluster(SIDE_INDIAN, "Cavalry",  scaledCount(2, s),  880,  120, 2, 42, 36);
+  } 
+  else if (preset.equals("Battalion")) {
+    spawnCluster(SIDE_INDIAN, "Infantry", scaledCount(16, s), 780, -180, 5, 56, 26);
+    spawnCluster(SIDE_INDIAN, "Cavalry",  scaledCount(4, s),  890,  120, 4, 48, 36);
+    spawnCluster(SIDE_INDIAN, "Elephant",  scaledCount(1, s), 1000,  -20, 1, 0, 0);
+  } 
+  else if (preset.equals("Brigade")) {
+    spawnCluster(SIDE_INDIAN, "Infantry", scaledCount(26, s), 790, -210, 6, 58, 26);
+    spawnCluster(SIDE_INDIAN, "Cavalry",  scaledCount(6, s),  910,  110, 3, 50, 36);
+    spawnCluster(SIDE_INDIAN, "Elephant",  scaledCount(2, s), 1030,  -10, 2, 0, 0);
+  } 
+  else if (preset.equals("Corps")) {
+    spawnCluster(SIDE_INDIAN, "Infantry", scaledCount(38, s), 800, -230, 7, 60, 26);
+    spawnCluster(SIDE_INDIAN, "Cavalry",  scaledCount(10, s), 920,  120, 5, 50, 36);
+    spawnCluster(SIDE_INDIAN, "Elephant",  scaledCount(3, s), 1040,  -30, 3, 0, 0);
+    spawnCluster(SIDE_INDIAN, "Cannon",   scaledCount(1, s), 1130,   20, 1, 0, 0);
+  } 
+  else if (preset.equals("Army")) {
+    spawnCluster(SIDE_INDIAN, "Infantry", scaledCount(52, s), 810, -250, 8, 62, 26);
+    spawnCluster(SIDE_INDIAN, "Cavalry",  scaledCount(14, s), 930,  120, 6, 52, 36);
+    spawnCluster(SIDE_INDIAN, "Elephant",  scaledCount(5, s), 1060,  -20, 3, 0, 0);
+    spawnCluster(SIDE_INDIAN, "Cannon",   scaledCount(2, s), 1145,   40, 2, 0, 0);
+  }
+}
+
+void setSideAdvance(int side, boolean advance) {
+  for (Unit u : units) {
+    if (u.side == side) {
+      u.state = advance ? 1 : 0;
+    }
+  }
+}
+
+void spawnCluster(int side, String type, int count, float frontX, float centerZ, int cols, float zGap, float extraGap) {
+  if (count <= 0) return;
+
+  int rows = max(1, ceil(count / (float)cols));
+  float dir = (side == SIDE_BRITISH) ? 1 : -1;
+  float facing = (side == SIDE_BRITISH) ? 0 : PI;
+
+  for (int i = 0; i < count; i++) {
+    int row = i / cols;
+    int col = i % cols;
+
+    float xSpacing = 28;
+    if (type.equals("Cavalry")) xSpacing = 42;
+    if (type.equals("Elephant")) xSpacing = 58;
+    if (type.equals("Cannon")) xSpacing = 46;
+
+    float zSpacing = (extraGap > 0) ? extraGap : zGap;
+
+    float x = frontX + dir * col * xSpacing + random(-10, 10);
+    float z = centerZ + (row - (rows - 1) * 0.5f) * zSpacing + random(-10, 10);
+
+    Unit u = new Unit(x, z, side, type);
+    u.heading = facing;
+    u.homeX = frontX;
+    u.homeZ = centerZ;
+    u.state = 0;
+    units.add(u);
+  }
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+float lerpAngle(float a, float b, float amt) {
+  float diff = atan2(sin(b - a), cos(b - a));
+  return a + diff * amt;
+}
+
+PVector solveBallisticVelocity(PVector src, PVector dst, float flightTime) {
+  float t = max(flightTime, 1.0f);
+  PVector v = PVector.sub(dst, src);
+  v.x /= t;
+  v.z /= t;
+  v.y = (dst.y - src.y - 0.5f * gravity.y * t * t) / t;
+  return v;
+}
+
+Unit pickNearestUnit(float screenX, float screenY) {
+  Unit best = null;
+  float bestD = 999999;
+
+  for (Unit u : units) {
+    float dx = (u.pos.x + width * 0.5f) - screenX;
+    float dy = (u.pos.z + height * 0.5f) - screenY;
+    float d = dx*dx + dy*dy;
+    if (d < bestD) {
+      bestD = d;
+      best = u;
+    }
+  }
+  return best;
+}
+
+// ============================================================
+// UNIT
+// ============================================================
+class Unit {
+  PVector pos;
+  PVector vel = new PVector();
+
+  int side;       // SIDE_BRITISH or SIDE_INDIAN
+  String type;    // Infantry / Cavalry / Elephant / Cannon
+  int state = 0;  // 0 = hold, 1 = advance
+
+  float hp, maxHp, speed, range;
+  int attackCooldown = 0, maxCooldown;
+  float sizeScale;
+
+  float morale = 100;
+  boolean routing = false;
+
+  float homeX, homeZ;
+  float heading = 0;
+  float animPhase = random(TWO_PI);
+
+  float cannonAngle = 0;
+  int cannonTimer = 0;
+
+  Unit(float x, float z, int s, String t) {
+    pos = new PVector(x + random(-10, 10), 0, z + random(-10, 10));
+    homeX = x;
+    homeZ = z;
+    side = s;
+    type = t;
+
+    if (t.equals("Infantry")) {
+      hp = 70;
+      speed = 1.15f;
+      range = 180;
+      maxCooldown = 85;
+      sizeScale = 12;
+    } else if (t.equals("Cavalry")) {
+      hp = 140;
+      speed = 3.35f;
+      range = 40;
+      maxCooldown = 45;
+      sizeScale = 18;
+    } else if (t.equals("Elephant")) {
+      hp = 450;
+      speed = 1.42f;
+      range = 48;
+      maxCooldown = 60;
+      sizeScale = 35;
+    } else {
+      hp = 250;
+      speed = 0.0f;
+      range = 900;
+      maxCooldown = 170;
+      sizeScale = 22;
+    }
+
+    maxHp = hp;
+  }
+
+  String sideName() {
+    return side == SIDE_BRITISH ? "BRITISH" : "INDIAN";
+  }
+
+  void update() {
+    if (attackCooldown > 0) attackCooldown--;
+    if (cannonTimer > 0) cannonTimer--;
+
+    Unit target = findClosestEnemy();
+    if (target == null) {
+      vel.mult(0.90f);
+      pos.add(vel);
+      return;
+    }
+
+    float distToEnemy = PVector.dist(pos, target.pos);
+    float targetHeading = atan2(target.pos.z - pos.z, target.pos.x - pos.x);
+
+    // Morale logic
+    if (hp < maxHp * 0.35f) morale -= 0.12f;
+    if (type.equals("Infantry") && distToEnemy < 120) morale -= 0.05f;
+    if (type.equals("Cavalry") && distToEnemy < 90) morale -= 0.03f;
+    if (type.equals("Elephant") && distToEnemy < 140) morale -= 0.02f;
+    if (target.type.equals("Elephant") && distToEnemy < 140) morale -= 0.30f;
+    if (distToEnemy > 260) morale += 0.03f;
+    morale = constrain(morale, 0, 100);
+
+    if (morale <= 25) routing = true;
+    if (routing && morale > 55 && distToEnemy > 250) routing = false;
+
+    if (routing) {
+      fleeFrom(target);
+      updateFacing();
+      animPhase += 0.25f;
+      return;
+    }
+
+    // Hold / advance behaviour
+    if (state == 1) {
+      if (type.equals("Cannon")) {
+        if (distToEnemy <= range) performLocalCombat(target, distToEnemy);
+        vel.mult(0.80f);
+      } else {
+        if (distToEnemy > range) {
+          advanceToward(target, speed);
+        } else {
+          performLocalCombat(target, distToEnemy);
+        }
+      }
+    } else {
+      vel.mult(0.92f);
+      if (distToEnemy <= range) performLocalCombat(target, distToEnemy);
+    }
+
+    pos.add(vel);
+    clampToField();
+
+    if (!type.equals("Cannon")) {
+      updateFacingFromMovement(targetHeading);
+    } else {
+      heading = lerpAngle(heading, targetHeading, 0.08f);
+    }
+
+    animPhase += (type.equals("Cavalry") ? 0.24f : (type.equals("Elephant") ? 0.10f : 0.16f));
+  }
+
+  void clampToField() {
+    pos.x = constrain(pos.x, -1650, 1650);
+    pos.z = constrain(pos.z, -1200, 1200);
+  }
+
+  void updateFacingFromMovement(float targetHeading) {
+    float mag = vel.mag();
+    float desired = targetHeading;
+    if (mag > 0.10f) desired = atan2(vel.z, vel.x);
+    heading = lerpAngle(heading, desired, type.equals("Elephant") ? 0.06f : 0.12f);
+  }
+
+  void updateFacing() {
+    if (vel.mag() > 0.05f) {
+      heading = lerpAngle(heading, atan2(vel.z, vel.x), 0.12f);
+    }
+  }
+
+  void advanceToward(Unit target, float step) {
+    float angle = atan2(target.pos.z - pos.z, target.pos.x - pos.x);
+    float accel = 0.06f;
+    if (type.equals("Cavalry")) accel = 0.14f;
+    else if (type.equals("Elephant")) accel = 0.08f;
+    else if (type.equals("Infantry")) accel = 0.07f;
+
+    PVector force = new PVector(cos(angle), 0, sin(angle));
+    force.mult(step * accel);
+    vel.add(force);
+
+    float maxSpeed = step;
+    if (type.equals("Infantry")) maxSpeed = 2.0f;
+    if (type.equals("Cavalry")) maxSpeed = 4.5f;
+    if (type.equals("Elephant")) maxSpeed = 2.3f;
+
+    if (vel.mag() > maxSpeed) vel.setMag(maxSpeed);
+  }
+
+  void fleeFrom(Unit target) {
+    float angle = atan2(pos.z - target.pos.z, pos.x - target.pos.x);
+    float fleeSpeed = speed * 1.8f + 0.8f;
+    vel.x += cos(angle) * 0.18f * fleeSpeed;
+    vel.z += sin(angle) * 0.18f * fleeSpeed;
+    if (vel.mag() > fleeSpeed) vel.setMag(fleeSpeed);
+    morale -= 0.04f;
+    morale = constrain(morale, 0, 100);
+    pos.add(vel);
+    clampToField();
+  }
+
+  void performLocalCombat(Unit target, float distance) {
+    if (attackCooldown > 0) return;
+
+    if (type.equals("Infantry")) {
+      fireMusket(target);
+    } else if (type.equals("Cavalry")) {
+      target.hp -= 20;
+      target.morale -= 16;
+      target.knockBackFrom(pos, 10);
+      if (distance < 55) applyShockWave(55, 8, 4);
+      attackCooldown = maxCooldown;
+    } else if (type.equals("Elephant")) {
+      target.hp -= 45;
+      target.morale -= 30;
+      target.knockBackFrom(pos, 16);
+      applyShockWave(130, 35, 12);
+      attackCooldown = maxCooldown;
+    } else if (type.equals("Cannon")) {
+      fireCannon();
+    }
+  }
+
+  void fireMusket(Unit target) {
+    PVector src = new PVector(pos.x, -16, pos.z);
+    PVector predicted = target.pos.copy();
+    predicted.add(PVector.mult(target.vel, 12));
+    predicted.y = -12;
+
+    PVector aimVel = solveBallisticVelocity(src, predicted, 16.0f);
+    cannonBalls.add(new CannonBall(src, aimVel, 1 - side, 10, false));
+
+    attackCooldown = maxCooldown + (int)random(20);
+  }
+
+  void applyShockWave(float radius, float moraleDamage, float pushStrength) {
+    for (Unit u : units) {
+      if (u.side != this.side && u.hp > 0) {
+        float d = PVector.dist(this.pos, u.pos);
+        if (d < radius) {
+          float k = 1.0f - (d / radius);
+          u.morale -= moraleDamage * k;
+          u.knockBackFrom(this.pos, pushStrength * k);
+          if (u.morale < 20) u.routing = true;
+        }
+      }
+    }
+  }
+
+  void knockBackFrom(PVector source, float force) {
+    PVector away = PVector.sub(pos, source);
+    away.y = 0;
+    if (away.mag() > 0.001f) {
+      away.normalize();
+      vel.add(PVector.mult(away, force * 0.12f));
+      pos.add(PVector.mult(away, force));
+      clampToField();
+    }
+  }
+
+  void fireCannon() {
+    if (attackCooldown > 0) return;
+    Unit target = findBestEnemyForCannon();
+    if (target == null) return;
+
+    float leadFrames = 24;
+    if (target.state == 1) leadFrames = 34;
+    if (target.type.equals("Cavalry")) leadFrames += 8;
+    if (target.type.equals("Elephant")) leadFrames += 12;
+
+    PVector predicted = target.pos.copy();
+    predicted.add(PVector.mult(target.vel, leadFrames));
+    predicted.y = -12;
+
+    PVector src = new PVector(pos.x, -18, pos.z);
+    float flatDistance = dist(src.x, src.z, predicted.x, predicted.z);
+    float flightTime = max(flatDistance / 8.2f, 28);
+
+    PVector aimVel = solveBallisticVelocity(src, predicted, flightTime);
+    cannonBalls.add(new CannonBall(src, aimVel, 1 - side, 80, true));
+
+    cannonAngle = degrees(atan2(-aimVel.y, max(sqrt(aimVel.x * aimVel.x + aimVel.z * aimVel.z), 0.001f)));
+    cannonTimer = 90;
+    attackCooldown = maxCooldown + (int)random(30);
+  }
+
+  Unit findBestEnemyForCannon() {
+    Unit best = null;
+    float bestScore = 1e12f;
+
+    for (Unit u : units) {
+      if (u.side != this.side && u.hp > 0) {
+        float d = PVector.dist(this.pos, u.pos);
+        float score = d;
+
+        if (u.state == 1) score *= 0.72f;
+        if (u.type.equals("Cavalry")) score *= 0.92f;
+        if (u.type.equals("Elephant")) score *= 0.78f;
+        if (u.routing) score *= 1.10f;
+
+        if (score < bestScore) {
+          bestScore = score;
+          best = u;
+        }
+      }
+    }
+    return best;
+  }
+
+  Unit findClosestEnemy() {
+    Unit closest = null;
+    float minDist = 999999;
+
+    for (Unit u : units) {
+      if (u.side != this.side && u.hp > 0) {
+        float d = PVector.dist(this.pos, u.pos);
+        if (d < minDist) {
+          minDist = d;
+          closest = u;
+        }
+      }
+    }
+    return closest;
+  }
+
+  float groundOffset() {
+    if (type.equals("Infantry")) return 11;
+    if (type.equals("Cavalry")) return 24;
+    if (type.equals("Elephant")) return 27;
+    return 13;
+  }
+
+  void display() {
+    pushMatrix();
+    translate(pos.x, pos.y - groundOffset(), pos.z);
+    rotateY(heading + HALF_PI);
+    drawUnitModel();
+    popMatrix();
+
+    // Health bar
+    pushMatrix();
+    translate(pos.x, pos.y - groundOffset() - 28, pos.z);
+    rotateY(-camRotY);
+    noStroke();
+    fill(50, 50, 50, 190);
+    rectMode(CENTER);
+    rect(0, 0, 34, 5);
+    fill(40, 220, 50);
+    rectMode(CORNER);
+    rect(-17, -2.5f, 34 * (hp / maxHp), 5);
+    popMatrix();
+
+    // Small label
+    pushMatrix();
+    translate(pos.x, pos.y - groundOffset() - 6, pos.z);
+    rotateY(-camRotY);
+    noStroke();
+    fill(20, 25, 30, 190);
+    rectMode(CENTER);
+    rect(0, 0, 16, 10, 3);
+    fill(255);
+    textAlign(CENTER, CENTER);
+    textSize(8);
+    text(type.substring(0, 1), 0, -0.5f);
+    popMatrix();
+
+    // Cannon angle display
+    if (type.equals("Cannon") && cannonTimer > 0) {
+      pushMatrix();
+      translate(pos.x, pos.y - groundOffset() - 48, pos.z);
+      rotateY(-camRotY);
+      fill(255, 220, 160);
+      textAlign(CENTER, CENTER);
+      textSize(11);
+      text(nf(cannonAngle, 0, 1) + "°", 0, 0);
+      popMatrix();
+    }
+  }
+
+  void drawUnitModel() {
+    stroke(0);
+    strokeWeight(1);
+
+    if (type.equals("Elephant")) {
+      drawElephantModel();
+    } else if (type.equals("Cavalry")) {
+      drawHorseModel();
+    } else if (type.equals("Cannon")) {
+      drawCannonModel();
+    } else {
+      drawInfantryModel();
+    }
+  }
+
+  // Infantry — stick figure walk/run animation
+  void drawInfantryModel() {
+    float run = (state == 1 && !routing) ? 1.0f : 0.0f;
+    float bob = sin(animPhase * 2.0f) * (run == 1.0f ? 2.2f : 0.6f);
+    float armSwing = sin(animPhase * 3.0f) * (run == 1.0f ? 0.75f : 0.15f);
+    float legSwing = sin(animPhase * 3.0f + PI) * (run == 1.0f ? 0.95f : 0.12f);
+
+    translate(0, bob, 0);
+
+    // torso
+    strokeWeight(3);
+    stroke(side == SIDE_BRITISH ? color(165, 30, 30) : color(230, 140, 20));
+    line(0, -18, 0, 0, -2, 0);
+
+    // head
+    noStroke();
+    fill(240);
+    pushMatrix();
+    translate(0, -24, 0);
+    sphere(4.6f);
+    popMatrix();
+
+    // arms
+    strokeWeight(2.5f);
+    stroke(60);
+    line(0, -11, 0,  7 * armSwing, -2,  2);
+    line(0, -11, 0, -7 * armSwing, -2, -2);
+
+    // legs
+    line(0, 0, 0,  7 * legSwing, 14,  2);
+    line(0, 0, 0, -7 * legSwing, 14, -2);
+
+    // musket
+    stroke(100);
+    strokeWeight(1.5f);
+    line(5, -8, 0, 14, -12, 0);
+  }
+
+  // Cavalry — horse-like motion and rider
+  void drawHorseModel() {
+    float run = (state == 1 && !routing) ? 1.0f : 0.0f;
+    float phase = animPhase * 3.4f;
+    float bob = sin(phase) * (run == 1.0f ? 1.8f : 0.45f);
+    float step = sin(phase) * (run == 1.0f ? 9.0f : 2.0f);
+
+    translate(0, bob, 0);
+
+    // Body
+    pushMatrix();
+    fill(110, 65, 35);
+    box(24, 16, 52);
+    popMatrix();
+
+    // Neck and head
+    pushMatrix();
+    translate(0, -10, -28);
+    rotateX(-0.35f);
+    fill(105, 62, 33);
+    box(10, 16, 20);
+    translate(0, -10, -10);
+    rotateX(0.10f);
+    box(9, 10, 14);
+    popMatrix();
+
+    // Tail
+    stroke(75, 40, 20);
+    strokeWeight(2.5f);
+    line(0, 0, 28, 0, 10, 40);
+
+    // Legs
+    stroke(90, 50, 25);
+    strokeWeight(4);
+    line(-9, 8, -16, -10 + step, 24, -20);
+    line(9, 8, 16, 10 - step, 24, 20);
+    line(9, 8, -16, 10 - step, 24, -20);
+    line(-9, 8, 16, -10 + step, 24, 20);
+
+    // Rider
+    pushMatrix();
+    translate(0, -18, 0);
+    if (side == SIDE_BRITISH) fill(200, 30, 30);
+    else fill(30, 120, 40);
+    box(8, 14, 8);
+    translate(0, -10, 0);
+    fill(240);
+    sphere(5);
+    popMatrix();
+  }
+
+  // Elephant — smooth facing with tusks and howdah
+  void drawElephantModel() {
+    float walk = (state == 1 && !routing) ? 1.0f : 0.0f;
+    float phase = animPhase * 1.6f;
+    float bob = sin(phase) * (walk == 1.0f ? 1.3f : 0.35f);
+    float foot = sin(phase) * (walk == 1.0f ? 2.8f : 0.3f);
+
+    translate(0, bob, 0);
+
+    // Body
+    pushMatrix();
+    fill(105, 110, 115);
+    box(38, 24, 56);
+    popMatrix();
+
+    // Head + trunk
+    pushMatrix();
+    translate(0, -8, -30);
+    fill(100, 105, 110);
+    box(26, 20, 22);
+    translate(0, 12, -18);
+    box(11, 22, 14);
+    translate(0, 14, -6);
+    box(9, 18, 10);
+    popMatrix();
+
+    // Tusks
+    stroke(240, 235, 210);
+    strokeWeight(3);
+    line(-10, 0, -40, -18, 4, -56);
+    line(10, 0, -40, 18, 4, -56);
+
+    // Legs
+    stroke(80, 80, 85);
+    strokeWeight(6);
+    line(-13, 10, -14, -13, 24 + foot, -14);
+    line(13, 10, -14, 13, 24 - foot, -14);
+    line(-13, 10, 14, -13, 24 - foot, 14);
+    line(13, 10, 14, 13, 24 + foot, 14);
+
+    // Howdah
+    pushMatrix();
+    translate(0, -18, 0);
+    fill(170, 130, 40);
+    box(18, 10, 20);
+    translate(0, -8, 0);
+    box(16, 6, 18);
+    popMatrix();
+  }
+
+  // Cannon
+  void drawCannonModel() {
+    noStroke();
+
+    // Wheels
+    fill(40, 40, 45);
+    pushMatrix();
+    translate(-14, 8, 9);
+    box(6, 10, 10);
+    popMatrix();
+
+    pushMatrix();
+    translate(14, 8, 9);
+    box(6, 10, 10);
+    popMatrix();
+
+    // Carriage
+    fill(90, 75, 55);
+    pushMatrix();
+    translate(0, 2, 0);
+    box(26, 6, 18);
+    popMatrix();
+
+    // Barrel
+    fill(50, 55, 60);
+    pushMatrix();
+    translate(0, -1, -6);
+    box(6, 6, 36);
+    popMatrix();
+
+    // Muzzle ring
+    fill(25);
+    pushMatrix();
+    translate(0, -1, -24);
+    box(8, 8, 4);
+    popMatrix();
+
+    // Aiming mark
+    fill(230, 180, 70);
+    pushMatrix();
+    translate(0, -8, -2);
+    box(3, 2, 12);
+    popMatrix();
+  }
+}
+
+// ============================================================
+// PROJECTILE
+// ============================================================
+class CannonBall {
+  PVector pos, vel;
+  int targetSide;
+  float damage;
+  boolean isArtillery;
+  ArrayList<PVector> history = new ArrayList<PVector>();
+
+  CannonBall(PVector pos, PVector vel, int targetSide, float damage, boolean isArtillery) {
+    this.pos = pos.copy();
+    this.vel = vel.copy();
+    this.targetSide = targetSide;
+    this.damage = damage;
+    this.isArtillery = isArtillery;
+  }
+
+  void update() {
+    history.add(pos.copy());
+    if (history.size() > 28) history.remove(0);
+    vel.add(gravity);
+    pos.add(vel);
+  }
+
+  void display() {
+    pushMatrix();
+    noFill();
+    if (isArtillery) {
+      stroke(240, 140, 30, 180);
+      strokeWeight(4);
+    } else {
+      stroke(220, 220, 240, 120);
+      strokeWeight(1.5f);
+    }
+
+    beginShape();
+    for (PVector p : history) {
+      vertex(p.x, p.y, p.z);
+    }
+    endShape();
+    popMatrix();
+
+    pushMatrix();
+    translate(pos.x, pos.y, pos.z);
+    noStroke();
+    if (isArtillery) fill(40);
+    else fill(240, 230, 150);
+    sphere(isArtillery ? 8 : 2.5f);
+    popMatrix();
+  }
+
+  boolean outOfBounds() {
+    return (pos.y > 90 || pos.y < -600 || abs(pos.x) > 3400 || abs(pos.z) > 2600);
+  }
+
+  boolean checkCollision(ArrayList<Unit> targets) {
+    for (Unit u : targets) {
+      if (u.side == this.targetSide && u.hp > 0) {
+        float hitBounds = u.type.equals("Elephant") ? 40 : (u.type.equals("Cavalry") ? 22 : 14);
+        if (PVector.dist(this.pos, u.pos) < hitBounds) {
+          u.hp -= this.damage;
+          u.morale -= (isArtillery ? 18 : 8);
+
+          if (isArtillery) {
+            applySplashDamage(u.pos, 75, this.damage * 0.5f);
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void applySplashDamage(PVector blastOrigin, float radius, float splashDmg) {
+    for (Unit u : units) {
+      if (u.side == this.targetSide && u.hp > 0) {
+        if (PVector.dist(blastOrigin, u.pos) < radius) {
+          u.hp -= splashDmg;
+          u.morale -= 10;
+          if (u.morale < 25) u.routing = true;
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// BUTTON
+// ============================================================
+class Button {
+  float x, y, w, h;
+  String label;
+  int id;
+
+  Button(float x, float y, float w, float h, String label, int id) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.label = label;
+    this.id = id;
+  }
+
+  void display() {
+    rectMode(CORNER);
+    if (isHovered()) fill(70, 90, 120, 245);
+    else fill(30, 40, 60, 220);
+
+    stroke(212, 175, 55);
+    strokeWeight(1.5f);
+    rect(x, y, w, h, 6);
+
+    fill(255);
+    textAlign(CENTER, CENTER);
+    textSize(12);
+    text(label, x + w/2, y + h/2 - 1);
+  }
+
+  boolean isHovered() {
+    return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+  }
+
+  boolean isClicked() {
+    return isHovered();
+  }
+}
+
+// ============================================================
+// SLIDER
+// ============================================================
+class Slider {
+  float x, y, w;
+  String label;
+  float minV, maxV;
+  float value;
+  boolean dragging = false;
+
+  Slider(float x, float y, float w, String label, float minV, float maxV, float startV) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.label = label;
+    this.minV = minV;
+    this.maxV = maxV;
+    this.value = constrain(startV, minV, maxV);
+  }
+
+  void display() {
+    rectMode(CORNER);
+    fill(15, 18, 24, 200);
+    stroke(212, 175, 55);
+    strokeWeight(1.2f);
+    rect(x, y, w, 46, 8);
+
+    fill(240);
+    textAlign(LEFT, CENTER);
+    textSize(13);
+    text(label, x + 10, y + 14);
+
+    float tx = x + 14;
+    float ty = y + 30;
+    float tw = w - 28;
+
+    stroke(100, 100, 120);
+    strokeWeight(4);
+    line(tx, ty, tx + tw, ty);
+
+    float k = norm(value, minV, maxV);
+    stroke(212, 175, 55);
+    strokeWeight(4);
+    line(tx, ty, tx + tw * k, ty);
+
+    float knobX = tx + tw * k;
+    noStroke();
+    if (dragging) fill(255, 230, 160);
+    else fill(235, 200, 110);
+    ellipse(knobX, ty, 16, 16);
+
+    fill(255);
+    textAlign(RIGHT, CENTER);
+    textSize(13);
+    text(nf(value, 0, 0), x + w - 10, y + 14);
+  }
+
+  boolean mousePressed() {
+    float tx = x + 14;
+    float ty = y + 30;
+    float tw = w - 28;
+    float knobX = tx + tw * norm(value, minV, maxV);
+
+    if (dist(mouseX, mouseY, knobX, ty) < 16 || insideTrack(mouseX, mouseY)) {
+      dragging = true;
+      mouseDragged();
+      return true;
+    }
+    return false;
+  }
+
+  boolean mouseDragged() {
+    if (!dragging) return false;
+    float tx = x + 14;
+    float tw = w - 28;
+    float k = constrain((mouseX - tx) / tw, 0, 1);
+    value = lerp(minV, maxV, k);
+    return true;
+  }
+
+  boolean mouseReleased() {
+    boolean was = dragging;
+    dragging = false;
+    return was;
+  }
+
+  boolean insideTrack(float mx, float my) {
+    return mx >= x + 10 && mx <= x + w - 10 && my >= y + 20 && my <= y + 40;
+  }
+
+  int valueInt() {
+    return round(value);
+  }
+}
