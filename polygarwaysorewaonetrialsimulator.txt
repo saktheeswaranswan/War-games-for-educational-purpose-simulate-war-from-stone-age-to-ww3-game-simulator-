@@ -1,0 +1,535 @@
+import java.util.ArrayList;
+
+// Simulation Arrays
+ArrayList<Unit> units = new ArrayList<Unit>();
+ArrayList<CannonBall> cannonBalls = new ArrayList<CannonBall>();
+
+// Global Combat Variables
+int britishCasualties = 0;
+int mysoreCasualties = 0;
+PVector gravity = new PVector(0, 0.25f, 0); // Positive Y is downward in Processing
+
+// Camera Control Variables
+float camRotX = -0.4f; 
+float camRotY = 0.6f;  
+float camZoom = 1400;
+PVector camPan = new PVector(0, 100, 0);
+
+// UI Button Class instances
+ArrayList<Button> buttons = new ArrayList<Button>();
+
+void setup() {
+  // Setup for Android APDE
+  fullScreen(P3D);
+  orientation(LANDSCAPE);
+  smooth(8);
+  
+  // Initialize Formations
+  setupBattlefield();
+  
+  // Initialize UI Control Buttons
+  buttons.add(new Button(40, 40, 160, 40, "Fire Cannons", 1));
+  buttons.add(new Button(40, 95, 160, 40, "Infantry Charge", 2));
+  buttons.add(new Button(40, 150, 160, 40, "Cavalry Charge", 3));
+  buttons.add(new Button(40, 205, 160, 40, "Elephant Charge", 4));
+  buttons.add(new Button(40, 260, 160, 40, "Reset Battle", 5));
+}
+
+void draw() {
+  background(20, 25, 35); // Deep historic dusk sky
+  
+  // ----------------------------------------------------
+  // 1. RENDER 3D ENVIRONMENT
+  // ----------------------------------------------------
+  pushMatrix();
+    // Position Camera Viewport
+    translate(width/2 + camPan.x, height/2 + camPan.y, camPan.z); 
+    translate(0, 0, -camZoom + 1200); 
+    rotateX(camRotX);
+    rotateY(camRotY);
+    
+    // Draw Battlefield Ground Plane (Deccan Plateau theme)
+    pushMatrix();
+      rotateX(PI / 2);
+      noStroke();
+      fill(110, 95, 70); // Clay/earth sand tone
+      rectMode(CENTER);
+      rect(0, 0, 3000, 2000);
+      
+      // Battlefield grid markings
+      stroke(95, 80, 55);
+      strokeWeight(2);
+      for(int i = -1500; i <= 1500; i += 150) {
+        line(i, -1000, i, 1000);
+        line(-1500, i, 1500, i);
+      }
+    popMatrix();
+    
+    // Update and Draw 3D Units
+    for (int i = units.size() - 1; i >= 0; i--) {
+      Unit u = units.get(i);
+      u.update();
+      u.display();
+      
+      if (u.hp <= 0) {
+        if (u.side == 0) britishCasualties++;
+        else mysoreCasualties++;
+        units.remove(i);
+      }
+    }
+    
+    // Update and Draw 3D Cannonball Trajectories
+    for (int i = cannonBalls.size() - 1; i >= 0; i--) {
+      CannonBall cb = cannonBalls.get(i);
+      cb.update();
+      cb.display();
+      
+      if (cb.checkCollision(units) || cb.pos.y > 10 || abs(cb.pos.x) > 2000) {
+        cannonBalls.remove(i);
+      }
+    }
+  popMatrix();
+  
+  // ----------------------------------------------------
+  // 2. RENDER 2D HEADS-UP DISPLAY (HUD) & INTERACTION
+  // ----------------------------------------------------
+  hint(DISABLE_DEPTH_TEST);
+  camera(); // Reset matrix to default 2D orthographic view
+  
+  // Draw Top Banner Panel
+  fill(10, 15, 20, 220);
+  rect(0, 0, width, 100);
+  stroke(212, 175, 55); // Gold accent
+  strokeWeight(2);
+  line(0, 100, width, 100);
+  
+  // Title text
+  textAlign(CENTER, CENTER);
+  textSize(24);
+  fill(240);
+  text("ANGLO-MYSORE & POLYGAR WAR SIMULATION", width / 2, 35);
+  textSize(14);
+  fill(170);
+  text("Drag Screen: Rotate Camera | Drag Far Right Edge: Zoom", width / 2, 70);
+  
+  // Casualty Trackers
+  rectMode(CORNER);
+  // British Side Panel
+  fill(180, 40, 40, 50);
+  rect(200, 20, 220, 60, 5);
+  textAlign(LEFT, CENTER);
+  textSize(16);
+  fill(255, 150, 150);
+  text("BRITISH FORCES", 215, 40);
+  textSize(18);
+  fill(255);
+  text("Casualties: " + britishCasualties, 215, 65);
+  
+  // Mysore Side Panel
+  fill(230, 120, 20, 50);
+  rect(width - 420, 20, 220, 60, 5);
+  textAlign(LEFT, CENTER);
+  textSize(16);
+  fill(255, 200, 120);
+  text("MYSORE / POLYGAR", width - 405, 40);
+  textSize(18);
+  fill(255);
+  text("Casualties: " + mysoreCasualties, width - 405, 65);
+  
+  // Draw Interaction Control Buttons
+  for (Button b : buttons) {
+    b.display();
+  }
+  
+  hint(ENABLE_DEPTH_TEST);
+}
+
+// --------------------------------------------------------
+// INITIAL FORMATION GENERATION
+// --------------------------------------------------------
+void setupBattlefield() {
+  units.clear();
+  cannonBalls.clear();
+  
+  // SIDE 0: British Forces (Positioned on Left side: Negative X)
+  // Cannons (Backline)
+  for(int z = -200; z <= 200; z += 100) units.add(new Unit(-650, z, 0, "Cannon"));
+  // Infantry Men (Line Formations)
+  for(int z = -350; z <= 350; z += 40) {
+    units.add(new Unit(-500, z, 0, "Infantry"));
+    units.add(new Unit(-450, z, 0, "Infantry"));
+  }
+  // Cavalry Cavalry (Flanks)
+  for(int z = -300; z <= 300; z += 120) {
+    if(abs(z) > 150) {
+      units.add(new Unit(-400, z, 0, "Cavalry"));
+    }
+  }
+
+  // SIDE 1: Mysore & Polygar Forces (Positioned on Right side: Positive X)
+  // Cannons (Backline)
+  for(int z = -200; z <= 200; z += 130) units.add(new Unit(650, z, 1, "Cannon"));
+  // Regular Infantry & Polygar Matchlock Guerrillas
+  for(int z = -400; z <= 400; z += 35) {
+    units.add(new Unit(500, z, 1, "Infantry"));
+    units.add(new Unit(450, z, 1, "Infantry"));
+  }
+  // Heavy Cavalry Horses
+  for(int z = -300; z <= 300; z += 100) {
+    if(abs(z) > 100) units.add(new Unit(400, z, 1, "Cavalry"));
+  }
+  // Royal War Elephants (Front Shock Center Vanguard)
+  for(int z = -120; z <= 120; z += 80) {
+    units.add(new Unit(320, z, 1, "Elephant"));
+  }
+}
+
+// --------------------------------------------------------
+// USER CAMERA INTERACTION (ANDROID TOUCH OPTIMIZED)
+// --------------------------------------------------------
+void mouseDragged() {
+  // Prevent camera movement while interacting with the UI buttons
+  if (mouseX < 220 && mouseY > 100 && mouseY < 350) return; 
+  
+  // ZOOM: If dragging on the far right 20% of the screen
+  if (pmouseX > width * 0.8) {
+    camZoom += (mouseY - pmouseY) * 6f;
+    camZoom = constrain(camZoom, 300, 2500);
+  } 
+  // ROTATE: If dragging anywhere else on the screen
+  else {
+    camRotY += (mouseX - pmouseX) * 0.006f;
+    camRotX += (mouseY - pmouseY) * 0.006f;
+    camRotX = constrain(camRotX, -PI/2 + 0.05, -0.05); // Keep camera above ground
+  }
+}
+
+void mousePressed() {
+  for (Button b : buttons) {
+    if (b.isClicked()) {
+      executeCommand(b.actionID);
+      break;
+    }
+  }
+}
+
+// Process Command actions from Buttons
+void executeCommand(int actionID) {
+  if (actionID == 1) { // Fire Cannons
+    for (Unit u : units) {
+      if (u.type.equals("Cannon")) u.fireCannon();
+    }
+  } else if (actionID == 2) { // Command Infantry Charge
+    for (Unit u : units) if (u.type.equals("Infantry")) u.state = 1;
+  } else if (actionID == 3) { // Command Cavalry Charge
+    for (Unit u : units) if (u.type.equals("Cavalry")) u.state = 1;
+  } else if (actionID == 4) { // Command Elephant Charge
+    for (Unit u : units) if (u.type.equals("Elephant")) u.state = 1;
+  } else if (actionID == 5) { // Reset Battle simulation
+    britishCasualties = 0;
+    mysoreCasualties = 0;
+    setupBattlefield();
+  }
+}
+
+// --------------------------------------------------------
+// 3D UNIT DATA ARCHITECTURE
+// --------------------------------------------------------
+class Unit {
+  PVector pos;
+  int side;        // 0 = British, 1 = Mysore
+  String type;     // "Infantry", "Cavalry", "Elephant", "Cannon"
+  int state;       // 0 = Static/Holding Line, 1 = Charging
+  float hp, maxHp, speed, range;
+  int attackCooldown = 0, maxCooldown;
+  float sizeScale;
+
+  Unit(float x, float z, int side, String type) {
+    this.pos = new PVector(x + random(-10, 10), 0, z + random(-10, 10)); // Y=0 is ground level
+    this.side = side;
+    this.type = type;
+    this.state = 0; // Starts static
+
+    // Balance historical combat profiles
+    if (type.equals("Infantry")) {
+      hp = 70; speed = 1.1; range = 180; maxCooldown = 90; sizeScale = 12;
+    } else if (type.equals("Cavalry")) {
+      hp = 140; speed = 3.2; range = 35; maxCooldown = 45; sizeScale = 18;
+    } else if (type.equals("Elephant")) {
+      hp = 450; speed = 1.4; range = 45; maxCooldown = 60; sizeScale = 35;
+    } else { // Artillery Cannon
+      hp = 250; speed = 0.0; range = 900; maxCooldown = 180; sizeScale = 22;
+    }
+    this.maxHp = hp;
+  }
+
+  void update() {
+    // Cooldown progression
+    if (attackCooldown > 0) attackCooldown--;
+
+    // Look for target
+    Unit target = findClosestEnemy();
+    if (target == null) return;
+
+    float distToEnemy = PVector.dist(new PVector(pos.x, 0, pos.z), new PVector(target.pos.x, 0, target.pos.z));
+
+    if (state == 1) { // Moving Out / Charging
+      if (distToEnemy > range) {
+        // Run forward along X/Z axis toward target
+        float angle = atan2(target.pos.z - pos.z, target.pos.x - pos.x);
+        pos.x += cos(angle) * speed;
+        pos.z += sin(angle) * speed;
+      } else {
+        // Perform standard local field attacks
+        performLocalCombat(target, distToEnemy);
+      }
+    } else {
+      // Static Formations check if an enemy wandered right into their face defensive lines
+      if (distToEnemy <= range) {
+        performLocalCombat(target, distToEnemy);
+      }
+    }
+  }
+
+  void performLocalCombat(Unit target, float distance) {
+    if (attackCooldown <= 0) {
+      if (type.equals("Infantry")) {
+        // Musket fire volley simulation
+        float pSpeed = 15;
+        PVector targetVel = calculateParabolicVector(pos, target.pos, pSpeed, 25);
+        cannonBalls.add(new CannonBall(new PVector(pos.x, -15, pos.z), targetVel, 1 - side, 15, false));
+        attackCooldown = maxCooldown + (int)random(20);
+      } else if (type.equals("Cavalry") || type.equals("Elephant")) {
+        // Melee Impact Damage
+        target.hp -= (type.equals("Elephant") ? 45 : 20);
+        attackCooldown = maxCooldown;
+      }
+    }
+  }
+
+  void fireCannon() {
+    if (attackCooldown <= 0) {
+      Unit target = findClosestEnemy();
+      if (target != null) {
+        // Generate historical heavy artillery mortar path trajectory
+        PVector targetLoc = target.pos.copy().add(new PVector(random(-50,50), 0, random(-50,50)));
+        PVector launchVel = calculateParabolicVector(this.pos, targetLoc, 10, 55); 
+        cannonBalls.add(new CannonBall(new PVector(pos.x, -20, pos.z), launchVel, 1 - side, 80, true));
+        attackCooldown = maxCooldown + (int)random(40);
+      }
+    }
+  }
+
+  PVector calculateParabolicVector(PVector src, PVector dst, float speed, float arcHeightFactor) {
+    // Setup precise 3D trajectory path factoring gravitational vectors
+    PVector vel = PVector.sub(dst, src);
+    float airTime = vel.mag() / speed;
+    vel.x /= airTime;
+    vel.z /= airTime;
+    // Parabolic arc offset calculation to achieve high overhead curves
+    vel.y = (dst.y - src.y - 0.5f * gravity.y * airTime * airTime) / airTime;
+    return vel;
+  }
+
+  Unit findClosestEnemy() {
+    Unit closest = null;
+    float minDist = 999999;
+    for (Unit u : units) {
+      if (u.side != this.side && u.hp > 0) {
+        float d = PVector.dist(this.pos, u.pos);
+        if (d < minDist) {
+          minDist = d;
+          closest = u;
+        }
+      }
+    }
+    return closest;
+  }
+
+  void display() {
+    pushMatrix();
+      translate(pos.x, pos.y, pos.z);
+      
+      // Determine Unit Faction Scheme (British Redcoats vs Saffron/Gold Tiger of Mysore)
+      if (side == 0) fill(190, 25, 25); 
+      else fill(235, 130, 20); 
+      stroke(0);
+      strokeWeight(1);
+
+      // Render Distinct 3D Geometric Unit Signatures
+      if (type.equals("Elephant")) {
+        // Giant Elephant Body
+        fill(100, 105, 115);
+        box(sizeScale, sizeScale * 0.8f, sizeScale * 1.5f);
+        // Howdah Carriage on top
+        translate(0, -sizeScale * 0.7f, 0);
+        fill(180, 140, 40);
+        box(sizeScale * 0.6f, sizeScale * 0.4f, sizeScale * 0.8f);
+      } 
+      else if (type.equals("Cavalry")) {
+        // Fast War Horse Cylinder-Box
+        fill(110, 65, 35);
+        box(8, 12, sizeScale);
+        // Rider
+        translate(0, -9, 0);
+        if(side==0) fill(200,30,30); else fill(30,120,40);
+        box(6, 10, 6);
+      } 
+      else if (type.equals("Cannon")) {
+        // Timber carriage support chassis
+        fill(90, 75, 55);
+        box(sizeScale, 8, sizeScale * 1.2f);
+        // Gun Barrel
+        translate(0, -7, 0);
+        fill(50, 55, 60);
+        rotateY(side == 0 ? 0 : PI); // Face towards opposing line
+        box(6, 6, sizeScale * 1.4f);
+      } 
+      else { // Standard Line Infantry
+        // Torso Body
+        box(sizeScale, sizeScale * 1.8f, sizeScale);
+        // Cap/Head Piece
+        translate(0, -sizeScale * 1.3f, 0);
+        fill(side == 0 ? 20 : 200, side == 0 ? 20 : 150, 50);
+        sphere(sizeScale * 0.5f);
+      }
+    popMatrix();
+
+    // Overhead Status Float Health Bar Indicator
+    pushMatrix();
+      translate(pos.x, pos.y - (sizeScale * 2.2f), pos.z);
+      // Face health bar billboard directly at view plane
+      rotateY(-camRotY);
+      noStroke();
+      fill(50, 50, 50, 200);
+      rectMode(CENTER);
+      rect(0, 0, 30, 5);
+      fill(40, 220, 50);
+      rectMode(CORNER);
+      rect(-15, -2.5f, 30 * (hp / maxHp), 5);
+    popMatrix();
+  }
+}
+
+// --------------------------------------------------------
+// 3D PARABOLIC PROJECTILE ARCHITECTURE
+// --------------------------------------------------------
+class CannonBall {
+  PVector pos, vel;
+  int targetSide;
+  float damage;
+  boolean isArtillery;
+  ArrayList<PVector> history = new ArrayList<PVector>();
+
+  CannonBall(PVector pos, PVector vel, int targetSide, float damage, boolean isArtillery) {
+    this.pos = pos.copy();
+    this.vel = vel.copy();
+    this.targetSide = targetSide;
+    this.damage = damage;
+    this.isArtillery = isArtillery;
+  }
+
+  void update() {
+    // Record past trace locations to render smooth historical flight ribbons
+    history.add(pos.copy());
+    if (history.size() > 25) history.remove(0);
+    
+    // Apply ballistic gravitation equations
+    vel.add(gravity);
+    pos.add(vel);
+  }
+
+  void display() {
+    // Draw Luminous 3D Kinetic Ribbon Trajectory trails
+    pushMatrix();
+      noFill();
+      if (isArtillery) {
+        stroke(240, 140, 30, 180); // Bright heavy iron burning amber trail
+        strokeWeight(4);
+      } else {
+        stroke(220, 220, 240, 120); // Soft grey musket smoke trace
+        strokeWeight(1.5f);
+      }
+      beginShape();
+      for (PVector p : history) {
+        vertex(p.x, p.y, p.z);
+      }
+      endShape();
+    popMatrix();
+
+    // Core projectile delivery shell
+    pushMatrix();
+      translate(pos.x, pos.y, pos.z);
+      noStroke();
+      if (isArtillery) {
+        fill(40);
+        sphere(8);
+      } else {
+        fill(240, 230, 150);
+        sphere(2.5f);
+      }
+    popMatrix();
+  }
+
+  boolean checkCollision(ArrayList<Unit> targets) {
+    for (Unit u : targets) {
+      if (u.side == this.targetSide) {
+        float hitBounds = u.type.equals("Elephant") ? 40 : (u.type.equals("Cavalry") ? 20 : 12);
+        float d = PVector.dist(this.pos, u.pos);
+        if (d < hitBounds) {
+          u.hp -= this.damage;
+          // Apply splash damage if heavy high explosive shell
+          if (isArtillery) applySplashDamage(u.pos, 75, this.damage * 0.5f);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void applySplashDamage(PVector blastOrigin, float radius, float splashDmg) {
+    for (Unit u : units) {
+      if (u.side == this.targetSide) {
+        float d = PVector.dist(blastOrigin, u.pos);
+        if (d < radius) u.hp -= splashDmg;
+      }
+    }
+  }
+}
+
+// --------------------------------------------------------
+// 2D INTERACTIVE INTERFACE CONTROLS MODULE
+// --------------------------------------------------------
+class Button {
+  float x, y, w, h;
+  String label;
+  int actionID;
+
+  Button(float x, float y, float w, float h, String label, int actionID) {
+    this.x = x; this.y = y; this.w = w; this.h = h;
+    this.label = label; this.actionID = actionID;
+  }
+
+  void display() {
+    rectMode(CORNER);
+    if (isHovered()) fill(45, 60, 80, 240);
+    else fill(25, 35, 45, 200);
+    
+    stroke(212, 175, 55); // Gold trimming borders
+    strokeWeight(1.5f);
+    rect(x, y, w, h, 4);
+    
+    textAlign(CENTER, CENTER);
+    textSize(14);
+    fill(245);
+    text(label, x + w/2, y + h/2 - 2);
+  }
+
+  boolean isHovered() {
+    return (mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h);
+  }
+
+  boolean isClicked() {
+    return isHovered();
+  }
+}
